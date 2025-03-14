@@ -28,7 +28,7 @@ criterion = nn.MSELoss()
 optimizer = optim.AdamW(model.parameters(), lr=learning_rate)
 scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5)
 
-# przygotowywanie danych,
+# przygotowywanie danych
 df = pd.read_csv("descriptors.csv")
 augmented_df = augment_dataframe(df, multiplier=20)
 tokenized = augmented_df['formula'].apply(lambda x: tokenize_formula(x))
