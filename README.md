@@ -50,8 +50,6 @@ python use_model.py "C7H13-"
 - `main.py` – skrypt do używania modelu
 - `src` - tam znajdują się pliki modeli: tokenizera, scalera i modelu z projektu
 
-## Licencja
-Projekt udostępniony na licencji MIT.
 
 ## Wykorzystane biblioteki
 - [PyTorch](https://pytorch.org)
