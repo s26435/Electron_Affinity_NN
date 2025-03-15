@@ -40,13 +40,9 @@ python use_model.py [wzór_chemiczny]
 
 Przykład:
 ```
-python models.py "C7H13-"
+python use_model.py "C7H13-"
 ```
 
-Alternatywnie możesz uruchomić model przy pomocy:
-```bash
-python use_model.py "wzór chemiczny"
-```
 
 ## Struktura projektu
 - `descryptors.py` – obliczanie deskryptorów chemicznych
