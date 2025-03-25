@@ -30,25 +30,43 @@ Rozbudowany model wykorzystujący warstwy konwolucyjne (CNN), mechanizm uwagi (S
 1. Pobierz lub sklonuj repozytorium.
 2. Pobierz lub wygeneruj dane przy pomocy scrapera.
 3. Uruchom skrypt `descryptors.py`, by wygenerować deskryptory.
-4. Trenuj model za pomocą `models.py`.
 
-### Użycie gotowego modelu
+### Wytrenowanie modelu
 Aby użyć gotowego wytrenowanego modelu do przewidywania powinowactwa elektronowego, użyj:
 ```bash
-python use_model.py [wzór_chemiczny]
+python main.py --model <typ_modelu> --action train
 ```
 
 Przykład:
 ```
-python use_model.py "C7H13-"
+python main.py --model class --action train
 ```
 
+### Użycie gotowego modelu
+Aby użyć gotowego wytrenowanego modelu do przewidywania powinowactwa elektronowego, użyj:
+```bash
+python main.py --model <typ_modelu> --action use --target <wzór_chemiczny>
+```
+
+Przykład:
+```
+python main.py --model reg --action use --target "C7H13-"
+```
+
+### Rodzaje --model
+* Regresyjny na całych wartościach - `reg`
+* Regresyjnych na tylko dodatnich wartościach - `preg`
+* Clasyfikator dla EA > 3.6 eV - `class`
+
+### Rodzaje --action
+* Użycie gotowego modelu z folderu `src` - `use`
+* Trenowanie modelu - `train`
 
 ## Struktura projektu
 - `descryptors.py` – obliczanie deskryptorów chemicznych
 - `models.py` – implementacja sieci neuronowej
 - `main.py` – skrypt do używania modelu
-- `src` - tam znajdują się pliki modeli: tokenizera, scalera i modelu z projektu
+- `src` - tam znajdują się pliki modeli: tokenizera, scalera i modeli z projektu
 
 
 ## Wykorzystane biblioteki

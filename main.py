@@ -1,117 +1,77 @@
-import torch.optim as optim
-from torch.utils.data import DataLoader, TensorDataset
+import os.path
 
-from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import mean_absolute_error, r2_score
-from sklearn.metrics import mean_squared_error
-
-import utils
-from models import *
-from descryptors import *
 from utils import *
+from hiper_params import device, num_epochs
+from descryptors import get_one
 
-import joblib
+import argparse
 
-batch_size = 256
-num_epochs = 1000
-learning_rate = 0.00005
+parser = argparse.ArgumentParser()
 
-# sprawdzanie czy dostępne jest trenowanie na GPU
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print(f"Using device: {device}")
+parser.add_argument("--model", type=str, help="Nazwa modelu:\n-`class` - Classificator (>3.6 eV)\n- `preg` - positive only Regressor\n-`reg` - Regressor", required=True)
+parser.add_argument("--action", type=str, help="`train` - jeśli chcesz trenować nowy model\n`use` - jeśli chcesz użyć już wytrenowany", required=True)
+parser.add_argument("--target", type=str, help="jeśli trenujesz model tu wzór do predykcji np. `--target CO2`")
 
-# Przygotowywanie modelu
-model= ElectronAffinityRegressor().to(device)
-utils.init_weights(model)
-criterion = nn.MSELoss()
-optimizer = optim.AdamW(model.parameters(), lr=learning_rate)
-scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5)
+args = parser.parse_args()
 
-# przygotowywanie danych
-df = pd.read_csv("descriptors.csv")
-augmented_df = augment_dataframe(df, multiplier=20)
-tokenized = augmented_df['formula'].apply(lambda x: tokenize_formula(x))
-tokenz = pd.DataFrame(tokenized.tolist())
-X = pd.concat([tokenz, augmented_df.iloc[:, 3:]], axis=1).values
-Y = augmented_df[' EA'].values.reshape(-1, 1)
+def train_new_model(model_type):
+    print(f"Using device: {device}")
+    model, criterion, optimizer, scheduler, learning_rate = get_model_with_params(model_type)
+    dataloader_train, dataloader_test = get_datasets(model_type)
+    model, loss = train_model(model, criterion, optimizer, scheduler, dataloader_train)
+    print(f"Training loss: {loss}")
+    eval_model(model, model_type, dataloader_test)
+    save_model(model, model_type)
 
-# normalizacja danych
-scaler = StandardScaler()
-X = scaler.fit_transform(X)
-joblib.dump(scaler, 'src/scaler.pkl')
+def use_model(model_type):
+    path = f"src/{model_type}_model.pth"
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"File {path} not found")
 
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = torch.load(path, weights_only=False, map_location=device)
+    model = model.float()
+    model.eval()
+    print("Załadowano model!")
 
-# dzielenie danych na zbiory testowe i treningowe
-X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.2, random_state=42)
-X_train_tensor = torch.tensor(X_train, dtype=torch.float32).to(device)
-Y_train_tensor = torch.tensor(Y_train, dtype=torch.float32).to(device)
-X_test_tensor = torch.tensor(X_test, dtype=torch.float32).to(device)
-Y_test_tensor = torch.tensor(Y_test, dtype=torch.float32).to(device)
-dataset_train = TensorDataset(X_train_tensor, Y_train_tensor)
-dataloader_train = DataLoader(dataset_train, batch_size=batch_size, shuffle=True)
-dataset_test = TensorDataset(X_test_tensor, Y_test_tensor)
-dataloader_test = DataLoader(dataset_test, batch_size=batch_size, shuffle=False)
-
-# trening
-best_loss = float('inf')
-early_stop_counter = 0
-early_stop_patience = 20
-current_lr = learning_rate
-pbar = tqdm(range(num_epochs), total=num_epochs, ncols=200, desc="Training", unit="epoch")
-for epoch in pbar:
-    model.train()
-    total_loss = 0
-    for x_batch, y_batch in dataloader_train:
-        x_batch, y_batch = x_batch.to(device), y_batch.to(device)
-        optimizer.zero_grad()
-        y_pred = model(x_batch)
-        loss = criterion(y_pred, y_batch)
-        loss.backward()
-        optimizer.step()
-        total_loss += loss.item()
-
-    current_lr = scheduler.get_last_lr()
-    avg_loss = total_loss / len(dataloader_train)
-    scheduler.step(avg_loss)
-    pbar.set_postfix(loss=avg_loss, best_los=best_loss, current_learning_rate=current_lr)
-    if avg_loss < best_loss:
-        best_loss = avg_loss
-        early_stop_counter = 0
+    if args.target is not None and len(args.target) > 1:
+        formula = args.target
     else:
-        early_stop_counter += 1
-        if early_stop_counter >= early_stop_patience:
-            print("Early stopping triggered.")
-            break
+        formula = input("Podaj formułę: ")
 
+    df = get_one(formula).drop(columns=["formula"])
+    X = torch.concat(
+        [
+            torch.tensor(tokenize_formula(formula), dtype=torch.float32),
+            torch.tensor(df.values).flatten().float()
+        ],
+        dim=0
+    ).reshape(1, -1).to(device)
 
-# ewaluacja modelu
-model.eval()
-y_true, y_pred_list = [], []
+    scaler_loaded = joblib.load('src/scaler.pkl')
 
-with torch.no_grad():
-    for x_batch, y_batch in dataloader_test:
-        y_pred = model(x_batch.to(device))
-        y_true.extend(y_batch.cpu().numpy().flatten())
-        y_pred_list.extend(y_pred.cpu().numpy().flatten())
+    X_scaled = scaler_loaded.transform(X.cpu().numpy()).astype(np.float32)
+    X_scaled = torch.tensor(X_scaled, dtype=torch.float32).to(device)
 
-y_true = np.array(y_true)
-y_pred_list = np.array(y_pred_list)
+    result = model(X_scaled)
+    if model_type in ["reg", "preg"]:
+        print(f"Przewidziane EA dla {formula} = {result.item()}")
+    elif model_type == "class":
+        ans = "" if result.item() > 0.5 else "nie"
+        print(f"Przewidziane EA dla {formula}  go jako {ans} mającego EA > 3.6 eV")
 
-mae = mean_absolute_error(y_true, y_pred_list)
-mse = mean_squared_error(y_true, y_pred_list)
-rmse = np.sqrt(mse)
-r2 = r2_score(y_true, y_pred_list)
-mape = np.mean(np.abs((y_true - y_pred_list) / (y_true + 1e-6))) * 100
-smape = np.mean(100 * np.abs(y_true - y_pred_list) / ((np.abs(y_true) + np.abs(y_pred_list)) / 2))
-
-# wyświetlanie parametrów ewaluacji
-print(f"Test Loss (MAE): {mae:.4f}")
-print(f"Mean Squared Error (MSE): {mse:.4f}")
-print(f"Root Mean Squared Error (RMSE): {rmse:.4f}")
-print(f"R² Score: {r2:.4f}")
-print(f"Mean Absolute Percentage Error (MAPE): {mape:.2f}%")
-print(f"Symmetric Mean Absolute Percentage Error (SMAPE): {smape:.2f}%")
-
-# zapis modelu
-torch.save(model, "src/model.pth")
+if __name__ == "__main__":
+    if args.action == "train":
+        train_new_model(args.model)
+    elif args.action == "use":
+        try:
+            use_model(args.model)
+        except FileNotFoundError as e:
+            print(e)
+            ans = input("Czy chcesz nauczyć model od nowa? [t/n]")
+            if ans.lower() == "t":
+                train_new_model(args.model)
+                use_model(args.model)
+            else:
+                print("Kończenie pracy programu")
+                exit(0)

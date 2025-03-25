@@ -91,9 +91,10 @@ class DescryptorEncoder(nn.Module):
         return x
 
 class ElectronAffinityRegressor(nn.Module):
-    def __init__(self):
+    def __init__(self, consist_negative: bool = True):
         super(ElectronAffinityRegressor, self).__init__()
 
+        self.neg = consist_negative
         _in_layer = 2048
         first_layer = 1024
         second_layer = 512
@@ -148,6 +149,67 @@ class ElectronAffinityRegressor(nn.Module):
         out = self.dropout(out)
         out = self.relu(self.dense7(out))
         out = self.dropout(out)
-        out = self.dense8(out)
+        out = self.dense8(out) if self.neg else self.relu(self.dense8(out))
         return out
 
+class ElectronAffinityClassifier(nn.Module):
+    def __init__(self):
+        super(ElectronAffinityClassifier, self).__init__()
+
+        _in_layer = 2048
+        first_layer = 1024
+        second_layer = 512
+        third_layer = 256
+        fourth_layer = 128
+        fifth_layer = 64
+        sixth_layer = 32
+        seventh_layer = 16
+        _out = 1
+
+        self.descryptor = DescryptorEncoder()
+        self.formula = FormulaEncoder(dic_size=64)
+
+        self.dense1 = nn.Linear(_in_layer, first_layer)
+        self.dense2 = nn.Linear(first_layer, second_layer)
+        self.dense3 = nn.Linear(second_layer, third_layer)
+        self.dense4 = nn.Linear(third_layer, fourth_layer)
+        self.dense5 = nn.Linear(fourth_layer, fifth_layer)
+        self.dense6 = nn.Linear(fifth_layer, sixth_layer)
+        self.dense7 = nn.Linear(sixth_layer, seventh_layer)
+        self.dense8 = nn.Linear(seventh_layer, _out)
+
+        self.relu = nn.ReLU()
+        self.dropout = nn.Dropout(0.2)
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, inp):
+        b = inp.size(0)
+        if b == 0:
+            return torch.zeros(0, 1, device=inp.device)
+
+        y = inp[:, :64]
+        y = self.formula(y)
+
+        x = inp[:, 64:]
+        x = x.reshape(b, 1, 8, 4)
+        x = self.descryptor(x)
+        x = x.reshape(b, -1)
+
+        out = torch.cat((x, y), dim=1)
+
+        out = self.relu(self.dense1(out))
+        out = self.dropout(out)
+        out = self.relu(self.dense2(out))
+        out = self.dropout(out)
+        out = self.relu(self.dense3(out))
+        out = self.dropout(out)
+        out = self.relu(self.dense4(out))
+        out = self.dropout(out)
+        out = self.relu(self.dense5(out))
+        out = self.dropout(out)
+        out = self.relu(self.dense6(out))
+        out = self.dropout(out)
+        out = self.relu(self.dense7(out))
+        out = self.dropout(out)
+        out = self.sigmoid(self.dense8(out))
+        return out
